@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>QuantaRx Report</title>
+<style>
+@page { size: A4; margin: 16mm 16mm 16mm 16mm; }
+:root { --ink:#15212b; --muted:#5b6b78; --line:#d6dde2; --accent:#0f6e7a; --q:#6250d6; --soft:#f2f6f7; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; color:var(--ink); font-size:10.5pt; line-height:1.5; }
+h1 { font-size:24pt; margin:0; line-height:1.1; }
+h2 { font-size:14pt; margin:18pt 0 6pt; color:var(--accent); break-after:avoid; }
+h3 { font-size:11.5pt; margin:12pt 0 4pt; break-after:avoid; }
+p { margin:0 0 6pt; }
+ul, ol { margin:0 0 6pt; padding-left:18pt; }
+li { margin-bottom:2pt; }
+.sub { font-size:12.5pt; color:var(--accent); margin:4pt 0 8pt; }
+.meta { font-size:9.5pt; color:var(--muted); border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:6pt 0; margin-bottom:10pt; display:flex; flex-wrap:wrap; gap:4pt 18pt; }
+.callout { background:var(--soft); border-left:3pt solid var(--accent); padding:8pt 10pt; margin:8pt 0; break-inside:avoid; }
+.warn { background:#fbf3e8; border-left-color:#b65d12; }
+table { width:100%; border-collapse:collapse; margin:6pt 0 8pt; font-size:9.5pt; break-inside:avoid; }
+th, td { border-bottom:1px solid var(--line); padding:4pt 6pt; text-align:left; vertical-align:top; }
+th { background:var(--soft); font-weight:600; }
+td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+tr.best td { font-weight:600; }
+figure { margin:8pt 0 10pt; break-inside:avoid; }
+figure img { width:100%; display:block; border:1px solid var(--line); border-radius:4pt; }
+figcaption { font-size:9pt; color:var(--muted); margin-top:3pt; }
+.eq { font-family:"Cambria Math",Cambria,serif; font-size:11pt; background:var(--soft); padding:7pt 10pt; border-radius:4pt; margin:6pt 0; }
+code { font-family:Consolas,monospace; font-size:9pt; background:var(--soft); padding:0 3pt; border-radius:3pt; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:12pt; }
+.pb { break-before:page; }
+.kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:8pt; margin:8pt 0; }
+.kpi { border:1px solid var(--line); border-radius:4pt; padding:6pt 8pt; }
+.kpi b { display:block; font-size:16pt; color:var(--q); }
+.kpi span { font-size:8.5pt; color:var(--muted); }
+</style></head>
+<body>
+
+<h1>QuantaRx</h1>
+<div class="sub">Choosing antibiotic combinations with constraint-preserving QAOA</div>
+<div class="meta"><span><b>Challenge:</b> The Quantum Optimization Challenge (IBM Qiskit)</span><span><b>Domain:</b> Healthcare</span><span><b>Stack:</b> Qiskit 2.6.2 · qiskit-optimization 0.7.0 · Qiskit Aer 0.18.2</span><span><b>Code:</b> github.com/naumanzafarprofessional-creator/quantarx-qaoa</span></div>
+
+<div class="callout warn">All drug and pathogen numbers are <b>synthetic</b> and only loosely based on the literature. They are not a real antibiogram and nothing here is clinical advice. The project demonstrates an optimization method, not a prescribing tool.</div>
+
+<h2>1. Problem statement</h2>
+<p><b>Motivation.</b> When a patient arrives with severe sepsis, clinicians must start <i>empiric</i> antibiotics before lab results identify the pathogen. Every hour of delay raises mortality, so the regimen is chosen under uncertainty. A good combination of drugs should:</p>
+<ul>
+<li><b>cover</b> the pathogens most likely to be present, according to the local antibiogram (how often each drug works against each pathogen);</li>
+<li><b>avoid harmful drug–drug interactions</b>, such as vancomycin + gentamicin (kidney toxicity) or ciprofloxacin + azithromycin (heart-rhythm risk);</li>
+<li><b>avoid two drugs from the same class</b>, which adds toxicity and resistance pressure for little extra coverage;</li>
+<li><b>respect antimicrobial stewardship</b> by holding reserve agents such as carbapenems back where possible.</li>
+</ul>
+<p><b>Intended users.</b> Hospital antimicrobial-stewardship teams who write empiric-therapy guidelines for a ward or setting (ICU sepsis, community pneumonia). The problem is solved once per setting, not once per patient.</p>
+<p><b>Why it is a real optimization problem.</b> Coverage, redundancy and toxicity are all <i>pairwise</i> effects: a drug's value depends on which other drugs are in the regimen. The objective is therefore quadratic, and adding up independent scores fails. Even with 10 drugs, a greedy heuristic picks the wrong regimen (PTZ + LZD + GEN, rank 3) instead of the optimum (VAN + CIP + MTZ).</p>
+
+<h2>2. Formulation</h2>
+<p><b>Decision variables.</b> x<sub>d</sub> ∈ {0,1} for 10 drugs: piperacillin-tazobactam (PTZ), meropenem (MEM), ceftriaxone (CRO), cefepime (FEP), vancomycin (VAN), linezolid (LZD), gentamicin (GEN), ciprofloxacin (CIP), azithromycin (AZM), metronidazole (MTZ). This gives <b>10 qubits</b>.</p>
+<p><b>Data.</b> Susceptibility S<sub>dj</sub> (fraction of isolates of pathogen j killed by drug d), pathogen prevalence w<sub>j</sub> for each setting, interaction severity T<sub>de</sub>, same-class indicator D<sub>de</sub>, stewardship cost c<sub>d</sub>.</p>
+<p><b>Coverage.</b> True weighted coverage is non-linear: Σ<sub>j</sub> w<sub>j</sub>[1 − Π<sub>d</sub>(1 − S<sub>dj</sub>)<sup>x<sub>d</sub></sup>]. Truncating inclusion–exclusion at second order gives cov<sub>j</sub>(x) ≈ Σ<sub>d</sub> S<sub>dj</sub>x<sub>d</sub> − Σ<sub>d&lt;e</sub> S<sub>dj</sub>S<sub>ej</sub>x<sub>d</sub>x<sub>e</sub>. The quadratic term is exactly the <i>redundancy</i> between two drugs that cover the same pathogen, and the approximation is a provable lower bound (Bonferroni inequality, checked in the tests).</p>
+<div class="eq">minimise &nbsp; f(x) = −α Σ<sub>j</sub> w<sub>j</sub>[Σ<sub>d</sub> S<sub>dj</sub>x<sub>d</sub> − Σ<sub>d&lt;e</sub> S<sub>dj</sub>S<sub>ej</sub>x<sub>d</sub>x<sub>e</sub>] + β Σ<sub>d&lt;e</sub> T<sub>de</sub>x<sub>d</sub>x<sub>e</sub> + δ Σ<sub>d&lt;e</sub> D<sub>de</sub>x<sub>d</sub>x<sub>e</sub> + γ Σ<sub>d</sub> c<sub>d</sub>x<sub>d</sub><br><span style="font-size:9.5pt;color:var(--muted)">with α = 1.5, β = 0.4, δ = 0.3, γ = 1</span></div>
+<table>
+<tr><th>Constraint</th><th>Meaning</th><th>How it is handled</th></tr>
+<tr><td>Σ<sub>d</sub> x<sub>d</sub> = 3</td><td>exactly three drugs</td><td>penalty P(Σx − 3)² in standard QAOA; <b>enforced by the circuit itself</b> in XY-QAOA</td></tr>
+<tr><td>x<sub>VAN</sub> + x<sub>GEN</sub> ≤ 1</td><td>at most one kidney-toxic drug</td><td>slack-free penalty P·x<sub>VAN</sub>x<sub>GEN</sub> (no extra qubits)</td></tr>
+</table>
+<p><b>Test instance.</b> 10 drugs × 8 pathogen groups, two prevalence settings (ICU sepsis; community-acquired pneumonia). There are 2<sup>10</sup> = 1,024 assignments, of which 112 are feasible, so every quantum result can be checked against the exact answer.</p>
+<figure><img src="../results/fig_problem.png" alt="Susceptibility matrix and pairwise penalties"><figcaption>Figure 1. Synthetic instance: drug–pathogen susceptibility (left) and the pairwise penalties from interactions and class duplication (right).</figcaption></figure>
+
+<h2 class="pb">3. Architecture and quantum approach</h2>
+<figure><img src="../results/fig_architecture.png" alt="Architecture diagram"><figcaption>Figure 2. Architecture. Classical modelling (teal) feeds two quantum circuits (violet): the penalty-QAOA baseline and our constraint-preserving XY-QAOA. Angles are trained in a hybrid loop and every result is validated against exact references (orange).</figcaption></figure>
+<p><b>Why QAOA.</b> Every interaction in the model is pairwise, so the problem is a native QUBO / Ising Hamiltonian H<sub>C</sub>. The cost unitary e<sup>−iγH<sub>C</sub></sup> needs only RZ and RZZ gates, which makes QAOA the natural gate-model algorithm.</p>
+<p><b>Our extension: constraint-preserving XY-QAOA.</b> Standard QAOA searches all 1,024 bitstrings and relies on a large penalty to enforce "exactly three drugs". That penalty dominates the energy landscape and hides the clinically meaningful differences between regimens. Instead we:</p>
+<ol>
+<li><b>Prepare a Dicke state</b> |D(10,3)⟩, an equal superposition of all 120 three-drug regimens. We implemented the Bärtschi–Eidenbenz construction with O(nk) gates: 186 CX, against 1,013 for generic state preparation.</li>
+<li><b>Mix with a ring XY mixer</b> (<code>XXPlusYYGate</code> on neighbouring qubits). Each gate swaps one drug for another and never changes how many are selected.</li>
+</ol>
+<p>The circuit therefore never leaves the feasible subspace (leakage &lt; 10<sup>−9</sup> in tests). Only the small kidney-toxicity penalty remains in H<sub>C</sub>.</p>
+<p><b>Training.</b> CVaR aggregation (α = 0.1) optimises the best 10% of shots rather than the mean; INTERP warm starts initialise depth p+1 from the optimised depth-p angles; several random starts per depth; COBYLA as the classical optimiser; Hamiltonian normalised by √Σc² so the angle scale is instance-independent. Sampling uses the Qiskit 2 <code>StatevectorSampler</code> (16,384 shots) on a pre-transpiled ansatz.</p>
+
+<h2>4. Results and classical / exact comparison</h2>
+<h3>4.1 Exact and classical references (ICU sepsis)</h3>
+<table>
+<tr><th>Method</th><th>Regimen</th><th class="n">Objective</th></tr>
+<tr class="best"><td>Brute force (all 1,024 states)</td><td>VAN + CIP + MTZ</td><td class="n">−0.9228</td></tr>
+<tr><td><code>NumPyMinimumEigensolver</code> on the penalised QUBO</td><td>VAN + CIP + MTZ</td><td class="n">same (penalty is valid)</td></tr>
+<tr><td>Optimum of the exact non-linear coverage objective</td><td>VAN + CIP + MTZ</td><td class="n">QUBO picks the right answer</td></tr>
+<tr><td>Greedy heuristic</td><td>PTZ + LZD + GEN</td><td class="n">−0.8899 (rank 3)</td></tr>
+</table>
+<p>The model makes clinically sensible trade-offs on its own: none of the top-10 regimens pairs vancomycin with piperacillin-tazobactam or combines two β-lactams, and the reserve agent meropenem first appears at rank 9.</p>
+
+<h3>4.2 Quantum benchmark (depth p = 3, mean of 3 seeds)</h3>
+<div class="kpis">
+<div class="kpi"><b>64%</b><span>valid regimens, penalty QAOA</span></div>
+<div class="kpi"><b>99.5%</b><span>valid regimens, XY-QAOA</span></div>
+<div class="kpi"><b>3.5%</b><span>P(optimal), XY-CVaR-QAOA</span></div>
+<div class="kpi"><b>6×</b><span>more often optimal than penalty QAOA</span></div>
+</div>
+<table>
+<tr><th>Method</th><th class="n">P(optimal)</th><th class="n">P(top-5)</th><th class="n">P(feasible)</th><th class="n">Approx. ratio*</th><th class="n">CX</th></tr>
+<tr><td>QAOA (penalty)</td><td class="n">0.0058 ± 0.0002</td><td class="n">0.029</td><td class="n">0.635</td><td class="n">0.752</td><td class="n">270</td></tr>
+<tr><td>CVaR-QAOA (penalty)</td><td class="n">0.0048 ± 0.0005</td><td class="n">0.024</td><td class="n">0.545</td><td class="n">0.749</td><td class="n">270</td></tr>
+<tr><td>XY-QAOA</td><td class="n">0.0149 ± 0.0022</td><td class="n">0.077</td><td class="n"><b>0.995</b></td><td class="n"><b>0.871</b></td><td class="n">498</td></tr>
+<tr class="best"><td>XY-CVaR-QAOA</td><td class="n">0.0346 ± 0.0034</td><td class="n">0.102</td><td class="n">0.947</td><td class="n">0.769</td><td class="n">498</td></tr>
+<tr><td><i>Random bitstring</i></td><td class="n">0.0010</td><td class="n">0.005</td><td class="n">0.109</td><td class="n">–</td><td class="n">–</td></tr>
+<tr><td><i>Random 3-drug regimen</i></td><td class="n">0.0083</td><td class="n">0.042</td><td class="n">0.933</td><td class="n">0.747</td><td class="n">–</td></tr>
+</table>
+<p style="font-size:9pt;color:var(--muted)">*Expected normalised quality of the feasible samples (1 = optimal, 0 = worst feasible). Probabilities are exact Born probabilities at the trained angles.</p>
+<figure><img src="../results/fig_benchmark.png" alt="Benchmark across depth"><figcaption>Figure 3. Probability of measuring the optimal regimen, a top-5 regimen and a feasible regimen, against QAOA depth.</figcaption></figure>
+<p><b>Findings.</b></p>
+<ol>
+<li><b>Penalty QAOA learns feasibility but not quality.</b> Feasibility rises to 64%, but among feasible samples it is no better than random (approximation ratio 0.752 vs 0.747), and P(optimal) stays below a random three-drug guess. Varying the penalty weight 30× does not fix this.</li>
+<li><b>XY-QAOA fixes the root cause.</b> Feasibility is 95–99.5% by construction (the remainder is only the kidney-toxicity pair), and P(optimal) grows with depth. XY-CVaR-QAOA finds the optimum <b>6× more often than penalty QAOA, 4.2× more often than random guessing among three-drug regimens, and 35× more often than random bitstrings.</b></li>
+<li><b>The objective matches the goal.</b> Plain XY-QAOA gives the best average quality (0.871); CVaR concentrates probability on the best regimens (P(top-5) = 0.10), which suits a team reviewing a shortlist.</li>
+<li><b>Second setting.</b> For community pneumonia the exact optimum is CRO + AZM + MTZ; XY-CVaR-QAOA at p = 3 reaches P(optimal) = 0.085 (10× random three-drug guessing) with 98% feasibility.</li>
+<li><b>QUBO fidelity.</b> Sweeping α shows the QUBO optimum equals the true non-linear optimum for α ≤ 1.5 (we use 1.5); beyond that the truncation matters.</li>
+</ol>
+
+<h3>4.3 Noise and hardware study (Qiskit Aer)</h3>
+<p>The trained depth-3 circuits were run on a noisy simulator: depolarising gate errors and readout error at roughly current IBM median rates (2-qubit 7.5×10<sup>−3</sup>, 1-qubit 2.5×10<sup>−4</sup>, readout 1.5×10<sup>−2</sup>), scaled by λ from 0 to 1, and routed onto both all-to-all connectivity and an IBM heavy-hex coupling map. Because a correct XY-QAOA circuit always outputs exactly three drugs, any shot with a different count is a <b>detected error</b> and is discarded (symmetry verification, at no extra quantum cost). At λ = 0, Aer reproduces the ideal result (0.031 vs 0.030).</p>
+<figure><img src="../results/fig_noise.png" alt="Noise study"><figcaption>Figure 4. P(optimal) on raw shots, P(feasible), and P(optimal) after discarding shots without exactly three drugs, against noise scale λ (1 = today's rates).</figcaption></figure>
+<table>
+<tr><th>XY-CVaR-QAOA, p = 3</th><th class="n">CX</th><th class="n">λ = 0</th><th class="n">0.1</th><th class="n">0.25</th><th class="n">0.5</th><th class="n">1</th></tr>
+<tr><td>all-to-all, after symmetry check</td><td class="n">464</td><td class="n">0.033</td><td class="n">0.032</td><td class="n">0.028</td><td class="n">0.024</td><td class="n"><b>0.013</b></td></tr>
+<tr><td>heavy-hex, after symmetry check</td><td class="n">974</td><td class="n">0.032</td><td class="n">0.027</td><td class="n">0.020</td><td class="n">0.013</td><td class="n">0.009</td></tr>
+<tr><td><i>random feasible guess</i></td><td class="n">–</td><td class="n" colspan="5" style="text-align:center">0.0089</td></tr>
+</table>
+<ul>
+<li><b>Routing roughly doubles the circuit</b> (464 → 974 CX); connectivity, not qubit count, is the bottleneck.</li>
+<li><b>Symmetry verification is a second payoff of the XY design:</b> at λ = 0.25 on heavy-hex it raises P(optimal) 2.7× while keeping 40% of shots.</li>
+<li>The advantage over random guessing <b>survives today's noise on all-to-all hardware</b> (e.g. trapped ions) and up to <b>about half of today's noise on heavy-hex</b>. At today's heavy-hex rates it is lost.</li>
+<li>Penalty QAOA carries no signal at any noise level.</li>
+</ul>
+
+<h2>5. Limitations and reflection</h2>
+<ul>
+<li><b>No quantum advantage is claimed.</b> With 1,024 states, brute force takes milliseconds. The instance is deliberately small so that every quantum result can be verified exactly; the contribution is the modelling and the constraint-aware circuit design.</li>
+<li><b>Synthetic data.</b> The antibiogram, interactions and costs are illustrative, not clinical. Real use would need local antibiogram data and clinical review of the weights α, β, δ, γ.</li>
+<li><b>Approximate objective.</b> The QUBO uses a second-order coverage approximation; it matches the true optimum for α ≤ 1.5 but not beyond.</li>
+<li><b>The most likely bitstring is not always the optimum.</b> In the best run the optimum is the second most likely outcome. In practice one samples many shots and keeps the best by objective, which is cheap to check classically.</li>
+<li><b>Hardware.</b> On today's IBM heavy-hex devices at depth 3 the method does not beat random guessing; it needs roughly 2× better gates or all-to-all connectivity.</li>
+<li><b>Trade-offs observed.</b> The XY design costs more gates (Dicke preparation, mixer routing) but gives exact feasibility, a cleaner energy landscape and free error detection. CVaR trades average quality for a better shortlist.</li>
+</ul>
+
+<h2>6. Reproducibility</h2>
+<p>All randomness is seeded. The repository README gives setup steps for Windows and Linux/macOS. Main commands: <code>python -m pytest -q tests</code> (8 checks, about 30 s), <code>python run_experiments.py --quick</code> (demo, about 3 min), <code>python run_experiments.py</code> (full benchmark), <code>python noise_study.py</code> (noise study). Results and figures are committed in <code>results/</code>.</p>
+
+</body></html>

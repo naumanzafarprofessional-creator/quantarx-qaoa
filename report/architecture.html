@@ -1,0 +1,71 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>QuantaRx architecture</title>
+<style>
+:root { --ink:#15212b; --muted:#5b6b78; --line:#c9d3da; --q:#6250d6; --qbg:#f0eefc; --c:#0f6e7a; --cbg:#e6f3f4; --v:#b65d12; --vbg:#fbf1e6; }
+* { box-sizing:border-box; }
+body { margin:0; background:#fff; font-family:"Segoe UI",system-ui,sans-serif; color:var(--ink); }
+#d { width:2000px; height:800px; padding:40px 48px; position:relative; }
+h1 { margin:0 0 6px; font-size:34px; }
+.sub { color:var(--muted); font-size:20px; margin-bottom:26px; }
+.legend { position:absolute; right:48px; top:44px; display:flex; gap:22px; font-size:18px; color:var(--muted); }
+.legend span::before { content:""; display:inline-block; width:16px; height:16px; border-radius:4px; margin-right:8px; vertical-align:-2px; }
+.legend .lc::before { background:var(--cbg); border:2px solid var(--c); }
+.legend .lq::before { background:var(--qbg); border:2px solid var(--q); }
+.legend .lv::before { background:var(--vbg); border:2px solid var(--v); }
+.grid { display:grid; grid-template-columns: 300px 60px 330px 60px 420px 60px 300px 60px 300px; align-items:center; }
+.box { border:2px solid var(--line); border-radius:14px; padding:16px 18px; background:#fff; font-size:18px; line-height:1.4; }
+.box b { display:block; font-size:21px; margin-bottom:6px; }
+.box code { font-family:Consolas,monospace; font-size:16px; background:#f3f5f7; padding:1px 4px; border-radius:4px; }
+.box.c { border-color:var(--c); background:var(--cbg); }
+.box.q { border-color:var(--q); background:var(--qbg); }
+.box.v { border-color:var(--v); background:var(--vbg); }
+.box.hi { box-shadow:0 0 0 4px rgba(98,80,214,.25); }
+.ar { text-align:center; font-size:38px; color:var(--muted); }
+.stack { display:flex; flex-direction:column; gap:22px; }
+.tag { display:inline-block; font-size:14px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--q); margin-bottom:4px; }
+.loop { border:2px dashed var(--q); border-radius:18px; padding:16px; display:flex; flex-direction:column; gap:14px; background:#fbfaff; }
+.loop .lt { font-size:16px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--q); }
+.bottom { margin-top:30px; display:grid; grid-template-columns: 1fr 1fr; gap:28px; }
+.note { font-size:17px; color:var(--muted); margin-top:18px; }
+</style></head>
+<body><div id="d">
+<h1>QuantaRx architecture</h1>
+<div class="sub">Hybrid quantum–classical pipeline: clinical data → QUBO → constraint-preserving QAOA → validated regimen</div>
+<div class="legend"><span class="lc">Classical (Qiskit Optimization / NumPy)</span><span class="lq">Quantum circuit (Qiskit)</span><span class="lv">Validation</span></div>
+
+<div class="grid">
+  <!-- col 1: data -->
+  <div class="stack">
+    <div class="box c"><b>1 · Clinical data</b>Susceptibility S (10 drugs × 8 pathogens), prevalence w, interactions T, drug classes D, stewardship cost c<br><span style="color:var(--muted)">(synthetic, 2 settings)</span></div>
+  </div>
+  <div class="ar">→</div>
+  <!-- col 2: formulation -->
+  <div class="stack">
+    <div class="box c"><b>2 · Optimization model</b><code>QuadraticProgram</code><br>10 binary variables<br>min −coverage + toxicity + class duplication + stewardship<br>s.t. Σx = 3, x<sub>VAN</sub>+x<sub>GEN</sub> ≤ 1</div>
+  </div>
+  <div class="ar">→</div>
+  <!-- col 3: two branches -->
+  <div class="stack">
+    <div class="box q"><span class="tag">Baseline</span><b>3a · Penalty QAOA</b><code>QuadraticProgramToQubo</code> → Ising H<sub>C</sub> (both constraints as penalties)<br>|+⟩<sup>⊗10</sup> start, X mixer, ± CVaR</div>
+    <div class="box q hi"><span class="tag">Our method</span><b>3b · XY-QAOA</b>Size rule removed from H<sub>C</sub>; only x<sub>VAN</sub>·x<sub>GEN</sub> penalty kept<br>Dicke state |D(10,3)⟩ (186 CX) + ring XY mixer (<code>XXPlusYYGate</code>)<br>→ every sample has exactly 3 drugs</div>
+  </div>
+  <div class="ar">→</div>
+  <!-- col 4: hybrid loop -->
+  <div class="loop">
+    <div class="lt">Hybrid training loop</div>
+    <div class="box q"><b>Sample</b><code>StatevectorSampler</code>, 16,384 shots</div>
+    <div class="box c"><b>Optimize angles</b>COBYLA · CVaR α = 0.1 · multistart · INTERP warm start (p = 1→3)</div>
+  </div>
+  <div class="ar">→</div>
+  <!-- col 5: output -->
+  <div class="stack">
+    <div class="box c"><b>4 · Decode</b>Bitstrings → regimens, ranked by objective<br>Optimum: <b style="display:inline;font-size:18px">VAN + CIP + MTZ</b></div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="box v"><b>5 · Exact / classical validation</b>Brute force over all 1,024 states · <code>NumPyMinimumEigensolver</code> · greedy heuristic · random baselines · non-linear coverage check (α sweep) · 8 automated tests</div>
+  <div class="box v"><b>6 · Noise &amp; hardware study</b>Qiskit Aer noise model (depolarizing + readout, scaled λ = 0…1) · routing to IBM heavy-hex vs all-to-all · symmetry verification: discard shots without exactly 3 drugs</div>
+</div>
+<div class="note">Code: <code>drugcombo/formulation.py</code> (2) · <code>drugcombo/dicke.py</code>, <code>drugcombo/solvers.py</code> (3–4) · <code>run_experiments.py</code> (5) · <code>noise_study.py</code> (6)</div>
+</div></body></html>

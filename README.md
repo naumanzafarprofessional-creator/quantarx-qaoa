@@ -54,6 +54,10 @@ with $\alpha=1.5,\ \beta=0.4,\ \delta=0.3,\ \gamma=1$.
 
 ## 3. Quantum approach and justification
 
+![architecture](results/fig_architecture.png)
+
+The full written report is in [report/QuantaRx_Report.pdf](report/QuantaRx_Report.pdf). The same pipeline as a flowchart:
+
 ```mermaid
 flowchart LR
     A[Antibiogram S, prevalence w,<br/>interactions T, classes D, cost c] --> B[QuadraticProgram<br/>qiskit-optimization]
