@@ -30,7 +30,7 @@ from drugcombo.data import Instance
 from drugcombo.formulation import to_qubo, brute_force, is_feasible, regimen
 from drugcombo.solvers import normalise, xy_hamiltonian, xy_qaoa_ansatz
 
-OUT = "results"
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 BASE = {"p1": 2.5e-4, "p2": 7.5e-3, "readout": 1.5e-2}   # roughly IBM Eagle/Heron medians
 LAMBDAS = [0.0, 0.1, 0.25, 0.5, 1.0]
 SHOTS = 20000

@@ -11,7 +11,8 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 
 warnings.filterwarnings("ignore")
-OUT = "results"
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(HERE, "results")   # --quick writes to results_quick/ so the committed results stay intact
 
 
 # ----------------------------------------------------------------- workers -----
@@ -45,6 +46,9 @@ def _job(args):
 # ----------------------------------------------------------------- main --------
 
 def main(quick: bool):
+    global OUT
+    if quick:
+        OUT = os.path.join(HERE, "results_quick")
     from drugcombo.data import Instance, SHORT, PATHOGENS
     from drugcombo.formulation import (brute_force, regimen, true_coverage, default_penalty,
                                        to_qubo)

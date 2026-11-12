@@ -2,6 +2,8 @@
 
 **Domain:** Healthcare · **Hackathon:** The Quantum Optimization Challenge (IBM Qiskit)
 
+> **To run it:** see [section 5](#5-how-to-run-it). It runs locally on a simulator, needs no IBM account, and the tests take about 30 seconds.
+
 > ⚠️ All drug and pathogen numbers in this repository are **synthetic and only loosely based on the literature**. They are not a real antibiogram, and nothing here is clinical advice. The project demonstrates an *optimization method*. It is not a prescribing tool.
 
 ---
@@ -162,21 +164,67 @@ Random guessing among feasible regimens gives P(opt) = 1/112 = 0.0089.
    * It also stays clearly above random on **all-to-all hardware at today's error rates** (0.013 against 0.009); trapped-ion devices offer that connectivity.
 4. **Penalty QAOA carries no signal under any noise level.** Its P(opt | feasible) stays at the random value (about 0.0085) throughout, consistent with finding 1 in section 4.2.
 
-## 5. Reproduce
+## 5. How to run it
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate            # Windows  (source .venv/bin/activate on Linux/macOS)
+Everything runs locally on a classical simulator. You don't need an IBM Quantum account, an API key or a GPU. All results and figures quoted in this README are already committed in `results/`, so running anything is optional.
+
+### Requirements
+
+* Python 3.10–3.13 (tested on Python 3.13.0, Windows 11)
+* About 1.5 GB of disk space for the packages
+* Exact package versions are pinned in `requirements.txt`: Qiskit 2.6.2, qiskit-optimization 0.7.0, qiskit-aer 0.18.2
+
+### Setup
+
+The setup takes 2–5 minutes. Steps 1–3 are the same on every OS:
+
+1. `git clone https://github.com/naumanzafarprofessional-creator/quantarx-qaoa.git`
+2. `cd quantarx-qaoa`
+3. Create a virtual environment, activate it, and install the packages with the commands for your OS below.
+
+**Windows (PowerShell)**
+
+```powershell
+python -m venv C:\venvs\quantarx
+C:\venvs\quantarx\Scripts\Activate.ps1
 pip install -r requirements.txt
-python -m pytest -q tests         # 8 correctness checks
-python run_experiments.py --quick # ~3 min demo
-python run_experiments.py         # full benchmark (~15-20 min on 8 cores) -> results/
-python noise_study.py             # noise + heavy-hex study (~3 min, needs results/results.json)
 ```
 
-> **Windows note:** `qiskit-aer` fails to import with *"DLL load failed … filename or extension is too long"* when the virtual environment sits in a very long path. Create the venv in a short path, for example `C:\venvs\quantarx`.
+This puts the environment in a short path, `C:\venvs\quantarx`. If PowerShell blocks the activation script, run `Set-ExecutionPolicy -Scope Process Bypass` first.
 
-All randomness is seeded (sampler seeds, COBYLA starts, transpiler). `results/results.json` contains every run's metrics, optimizer history, optimal angles and its 20 most likely bitstrings.
+**Linux / macOS**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Run
+
+Run these from the repository folder.
+
+| Command | Time | What it does | Output |
+|---|---|---|---|
+| `python -m pytest -q tests` | ~30 s | Runs 8 correctness checks, and should report `8 passed`. They check that the QUBO's ground state is the true best regimen, that the Dicke state is exact, and that the XY mixer never changes the number of drugs. | console |
+| `python run_experiments.py --quick` | ~3 min | Runs a short demo: the classical baselines, then all four quantum methods with 1 seed and up to 2 layers. | `results_quick/` |
+| `python run_experiments.py` | 15–20 min (8 cores) | Runs the full benchmark behind section 4: 3 seeds, up to 3 layers, the penalty sweep, and the second scenario. | `results/` |
+| `python noise_study.py` | ~3 min | Runs the noisy Aer simulation and heavy-hex routing study behind section 4.4. It reads the optimised angles in `results/results.json`, which is already committed. | `results/noise_results.json`, `results/fig_noise.png` |
+
+The quick demo prints the exact optimum and the greedy pick first. It then prints one line per QAOA run, giving `P(opt)` (probability of sampling the best regimen) and `P(feas)` (probability of a valid regimen). The XY methods should show `P(feas)` close to 1, while penalty QAOA stays around 0.6. Quick mode writes to its own folder, so the committed full results are never overwritten.
+
+All randomness is seeded: sampler seeds, COBYLA starting points and the transpiler. Re-running gives the same numbers on the same platform. `results/results.json` holds, for every run:
+
+* its metrics
+* the optimizer history
+* the optimal angles
+* the 20 most likely bitstrings
+
+### Troubleshooting
+
+* **`DLL load failed … filename or extension is too long` on Windows.** `qiskit-aer` can't load from a virtual environment in a very long folder path. Create the environment in a short path, as in the Windows setup above.
+* **`ModuleNotFoundError: drugcombo`.** Run the commands from the repository root, and make sure the virtual environment is activated.
+* **Slow runs.** The benchmark uses all CPU cores but one. On machines with fewer cores the full run takes longer. For a fast check, use `--quick`.
 
 | File | Purpose |
 |---|---|
