@@ -1,0 +1,7 @@
+qiskit==2.6.2
+qiskit-optimization==0.7.0
+qiskit-aer==0.18.2
+numpy
+scipy
+matplotlib
+pytest
